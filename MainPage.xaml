@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TextSanitizer.MainPage"
+             Title="">
+
+
+    <Grid Padding="5">
+        <VerticalStackLayout >
+
+            <Border Margin="20,10,20,10" 
+                    HeightRequest="100"
+                    MaximumHeightRequest="100">
+                <Editor Placeholder="Enter a text"
+                       
+                       VerticalTextAlignment="Start"
+                        
+                       Text="{Binding Text}"/>
+            </Border>
+
+            <Button Grid.Column="0" Text="Sanitize Text"
+                     Command="{Binding CleanCommand}"
+                     Margin="20,10,20,7"/>
+            <Button Grid.Column="0" Text="Show hidden Text"
+                     Command="{Binding ShowHiddenCommand}"
+                     Margin="20,7,20,7"/>
+
+            <Border Margin="20,30,20,20" 
+                    HeightRequest="250"
+                    MaximumHeightRequest="200">
+                <ScrollView VerticalScrollBarVisibility="Always"
+                            HorizontalScrollBarVisibility="Always">
+
+                    <Label FormattedText="{Binding OutText}" 
+                           LineBreakMode="WordWrap"
+                           VerticalTextAlignment="Start" />
+                </ScrollView>
+            </Border>
+
+            <Button Text="Copy"
+              Command="{Binding CopyCommand}"
+              Margin="20,10,20,7"/>
+
+            <Button Grid.Column="1" Text="Clear"
+                     Command="{Binding EmptyCommand}"
+                     Margin="20,7,20,7"/>
+
+        </VerticalStackLayout>
+        <Label VerticalOptions="End" Text="{Binding Author}" HorizontalOptions="Center" Margin="0,0,0,10"/>
+    </Grid>
+
+
+</ContentPage>
