@@ -10,7 +10,7 @@ namespace TextSanitizer;
 public static class Extensions
 {
     public static readonly Regex UnicodeEscapes =
-        new Regex(@"\\u[0-9A-Fa-f]{4}", RegexOptions.Compiled);
+        new Regex(@"\\(?:u[0-9A-Fa-f]{4,8}|U[0-9A-Fa-f]{8}|[uU]\{[0-9A-Fa-f]{1,8}\})", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     public static readonly Regex ZeroWidthChars =
         new Regex(@"[\u200B-\u200D\uFEFF\u2060-\u2064]", RegexOptions.Compiled);
     public static readonly Regex ExcessiveBrackets =

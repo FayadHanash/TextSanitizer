@@ -24,7 +24,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    async void Clean()
+    async Task Clean()
     {
         try
         {
@@ -41,7 +41,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    async void ShowHidden()
+    async Task ShowHidden()
     {
         try
         {
@@ -58,14 +58,14 @@ public partial class MainViewModel : ObservableObject
 
 
     [RelayCommand]
-    async void Copy()
+    async Task Copy()
     {
         if (string.IsNullOrWhiteSpace(OutText?.ToString())) return;
         await Clipboard.Default.SetTextAsync(OutText?.ToString());
     }
 
     [RelayCommand]
-    async void Empty()
+    async Task Empty()
     {
         Text = string.Empty;
         OutText = string.Empty;

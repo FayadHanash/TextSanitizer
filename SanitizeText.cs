@@ -9,179 +9,291 @@ using System.Threading.Tasks;
 
 namespace TextSanitizer;
 
-public class SanitizeText
+public static class SanitizeText
 {
     public static string Sanitize(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return input;
-        input = input
+        return input
             .RemoveUnicodedEscapes()
             .RemoveZeroWidths()
             .RemoveFormatChars()
             .RemoveControlChars()
             .RemoveCombiningMarks()
-            .RemoveInvisibleSpaces();
-        ReadOnlySpan<char> inputSpan = input.AsSpan();
-        int initialLength = inputSpan.Length;
-        char[] arrayFromPool = null;
+            .RemoveInvisibleSpaces()
+            .RemoveUnSupportedCharacters()
+            .CollapseWhitespace()
+            .RemoveSpaceBeforePunct()
+            .Trim();
+    }
+
+    public static string RemoveUnSupportedCharacters(this string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return input;
+        int length = input.Length;
+        char[]? pool = null;
+        bool changed = false;
         try
         {
-            Span<char> buffer = initialLength <= 256 ?
-                stackalloc char[initialLength] :
-                (arrayFromPool = ArrayPool<char>.Shared.Rent(initialLength));
-            int writeX = RemoveUnSupportedCharacters(inputSpan, buffer);
-            Span<char> sanitized = buffer[..writeX];
-            return sanitized
-                .ToString()
-                .CollapseWhitespace()
-                .RemoveSpaceBeforePunct()
-                .Trim();
+            ReadOnlySpan<char> text = input.AsSpan();
+            Span<char> buffer = length <= 256
+                ? stackalloc char[length]
+                : (pool = ArrayPool<char>.Shared.Rent(length)).AsSpan(0, length);
+
+            int idx = 0;
+            for (int i = 0; i < length;)
+            {
+                ReadOnlySpan<char> slice = text.Slice(i);
+                if (TryParseEscape(slice, out int escLen, out int cp, out var _))
+                {
+                    if (IsAllowedChar(cp))
+                    {
+                        var rune = new Rune(cp);
+                        rune.TryEncodeToUtf16(buffer.Slice(idx), out int wrt);
+                        idx += wrt;
+                    }
+                    if (escLen != (IsAllowedChar(cp) ? (new Rune(cp)).Utf16SequenceLength : 0))
+                    {
+                        changed = true;
+                    }
+                    i += escLen;
+                    continue;
+                }
+                if (Rune.DecodeFromUtf16(slice, out Rune rune2, out int rLen) == OperationStatus.Done)
+                {
+                    if (IsAllowedChar(rune2.Value))
+                    {
+                        rune2.TryEncodeToUtf16(buffer.Slice(idx), out int wrt);
+                        idx += wrt;
+                    }
+                    else
+                    {
+                        changed = true;
+                    }
+                    i += rLen;
+                    continue;
+                }
+                char c = slice[0];
+                if (IsAllowedChar(c))
+                {
+                    buffer[idx] = c;
+                }
+                else
+                {
+                    changed = true;
+                }
+
+                i++;
+            }
+
+            if (!changed && idx == length) return input;
+
+            return new string(buffer.Slice(0, idx));
         }
         finally
         {
-            if (arrayFromPool is not null)
+            if (pool is not null)
             {
-                ArrayPool<char>.Shared.Return(arrayFromPool);
+                ArrayPool<char>.Shared.Return(pool);
             }
         }
-
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int RemoveUnSupportedCharacters(ReadOnlySpan<char> input, Span<char> buffer)
+    private static bool IsAllowedChar(int cp)
     {
-        int count = 0;
-        foreach (char c in input)
+        foreach (var (s, e) in SupportedScriptBlock)
         {
-            if (IsAllowedChar(c))
-            {
-                buffer[count++] = c;
-            }
-            else if (char.IsWhiteSpace(c))
-            {
-                if (count == 0 || !char.IsWhiteSpace(buffer[count - 1]))
-                {
-                    buffer[count++] = ' ';
-                }
-            }
-        }
-        return count;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsAllowedChar(char c)
-    {
-        if (c <= '\u007F' && c >= ' ') return true;
-        ushort cp = c;
-        foreach ((ushort s, ushort e) b in SupportedScriptBlock)
-        {
-            if (cp >= b.s && cp <= b.e)
+            if ((uint)(cp - s) <= (uint)(e - s))
             {
                 return true;
             }
         }
+        return false;
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool TryParseEscape(ReadOnlySpan<char> sp, out int length, out int cp, out ReadOnlySpan<char> literal)
+    {
+        length = 0;
+        cp = 0;
+        literal = default;
 
-        return char.GetUnicodeCategory(c) switch
+        if (sp.Length < 2 || sp[0] != '\\' || (sp[1] is not ('u' or 'U')))
         {
-            UnicodeCategory.UppercaseLetter or
-            UnicodeCategory.LowercaseLetter or
-            UnicodeCategory.TitlecaseLetter or
-            UnicodeCategory.ModifierLetter or
-            UnicodeCategory.OtherLetter or
-            UnicodeCategory.DecimalDigitNumber or
-            UnicodeCategory.LetterNumber or
-            UnicodeCategory.OtherNumber or
-            UnicodeCategory.DashPunctuation or
-            UnicodeCategory.OpenPunctuation or
-            UnicodeCategory.ClosePunctuation or
-            UnicodeCategory.InitialQuotePunctuation or
-            UnicodeCategory.FinalQuotePunctuation or
-            UnicodeCategory.OtherPunctuation or
-            UnicodeCategory.CurrencySymbol or
-            UnicodeCategory.MathSymbol or
-            UnicodeCategory.OtherSymbol
-                => true,
-            _ => false
+            return false;
+        }
+
+        bool isUpperU = sp[1] == 'U';
+        bool braced = sp.Length > 2 && sp[2] == '{';
+        int hexStart = braced ? 3 : 2;
+        int minHex, maxHex;
+        if (isUpperU)
+        {
+            minHex = braced ? 1 : 8;
+            maxHex = 8;
+        }
+        else
+        {
+            minHex = braced ? 1 : 4;
+            maxHex = 6;
+        }
+        int idx = hexStart;
+        while (idx < sp.Length && idx - hexStart < maxHex && IsHexDigit(sp[idx]))
+        {
+            idx++;
+        }
+
+        int hexCount = idx - hexStart;
+
+        if (braced)
+        {
+            if (hexCount < minHex || idx >= sp.Length || sp[idx] != '}')
+            {
+                return false;
+            }
+            length = idx + 1;
+        }
+        else
+        {
+            if (hexCount < minHex || hexCount > maxHex)
+            {
+                return false;
+            }
+            length = hexStart + hexCount;
+        }
+        if (!TryParseHex(sp.Slice(hexStart, hexCount), out cp))
+        {
+            return false;
+        }
+
+        if (cp < 0 || cp > 0x10FFFF || (cp is >= 0xD800 and <= 0xDFFF))
+        {
+            return false;
+        }
+        literal = sp.Slice(0, length);
+        return true;
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int HexValue(char c)
+    {
+        return c switch
+        {
+            >= '0' and <= '9' => c - '0',
+            >= 'A' and <= 'F' => 10 + (c - 'A'),
+            >= 'a' and <= 'f' => 10 + (c - 'a'),
+            _ => -1
         };
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsHexDigit(char c) => (uint)(c - '0') <= 9 || (uint)(c - 'A') <= 5 || (uint)(c - 'a') <= 5;
 
-    public static FormattedString ShowHiddenChars(string text)
+    private static bool TryParseHex(ReadOnlySpan<char> hex, out int value)
     {
+        value = 0;
+        foreach (char c in hex)
+        {
+            int nib = HexValue(c);
+            if (nib < 0)
+            {
+                return false;
+            }
+            value = (value << 4) | nib;
+        }
+        return true;
+    }
+
+
+    public static FormattedString ShowHiddenChars(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return new FormattedString { Spans = { new Span { Text = input ?? string.Empty, } } };
+        }
         FormattedString fs = new();
-        StringBuilder sb = new();
-        for (int i = 0; i < text.Length;)
+        char[]? pool = null;
+        int idx = 0;
+        ReadOnlySpan<char> text = input.AsSpan();
+        int length = text.Length;
+        Span<char> buffer = length <= 256
+            ? stackalloc char[length]
+            : (pool = ArrayPool<char>.Shared.Rent(length)).AsSpan(0, length);
+        try
         {
 
-            if (i + 5 < text.Length && text[i] == '\\' && (text[i + 1] == 'u' || text[i + 1] == 'U'))
+            for (int i = 0; i < length;)
             {
-                int code = 0;
-                bool validHex = true;
-                for (int j = 2; j < 6; j++)
+                ReadOnlySpan<char> slice = text.Slice(i);
+                if (TryParseEscape(slice, out int escLen, out int cp, out var literal))
                 {
-                    char ch = text[i + j];
-                    int val = ch switch
+                    if (idx > 0)
                     {
-                        >= '0' and <= '9' => ch - '0',
-                        >= 'A' and <= 'F' => 10 + (ch - 'A'),
-                        >= 'a' and <= 'f' => 10 + (ch - 'a'),
-                        _ => -1
-                    };
-
-                    if (val < 0)
-                    {
-                        validHex = false;
-                        break;
+                        fs.Spans.Add(new Span
+                        {
+                            Text = new string(buffer.Slice(0, idx))
+                        });
+                        idx = 0;
                     }
-                    code = (code << 4) | val;
-                }
-                if (validHex)
-                {
-                    Flush();
+
                     fs.Spans.Add(new Span
                     {
-                        Text = text.Substring(i, 6),
+                        Text = literal.ToString(),
                         TextColor = Colors.Red
                     });
-                    i += 6;
+
+                    i += escLen;
                     continue;
                 }
-            }
-
-            char c = text[i];
-            if (IsHiddenChar(c))
-            {
-                Flush();
-                var code = $"\\u{(int)c:X4}";
-                fs.Spans.Add(new Span
+                if (Rune.DecodeFromUtf16(slice, out Rune rune, out int rLen) == OperationStatus.Done)
                 {
-                    Text = code,
-                    TextColor = Colors.Red,
-                });
+                    if (IsHiddenChar((char)rune.Value))
+                    {
+                        if (idx > 0)
+                        {
+                            fs.Spans.Add(new Span
+                            {
+                                Text = new string(buffer.Slice(0, idx))
+
+                            });
+                            idx = 0;
+                        }
+                        fs.Spans.Add(new Span
+                        {
+                            Text = $"\\u{rune.Value:X4}",
+                            TextColor = Colors.Red
+                        });
+                    }
+                    else
+                    {
+                        rune.TryEncodeToUtf16(buffer.Slice(idx), out int written);
+                        idx += written;
+                    }
+                    i += rLen;
+                    continue;
+                }
+
                 i++;
-                continue;
             }
-
-            sb.Append(c);
-            i++;
-        }
-
-        Flush();
-        return fs;
-
-        void Flush()
-        {
-            if (sb.Length > 0)
+            if (idx > 0)
             {
                 fs.Spans.Add(new Span
                 {
-                    Text = sb.ToString(),
+                    Text = new string(buffer.Slice(0, idx))
 
                 });
-                sb.Clear();
+
+            }
+            return fs;
+        }
+        finally
+        {
+            if (pool is not null)
+            {
+                ArrayPool<char>.Shared.Return(pool);
             }
         }
+
     }
-    static bool IsHiddenChar(char c) 
+    static bool IsHiddenChar(char c)
     {
         var cat = char.GetUnicodeCategory(c);
         if (cat == UnicodeCategory.Control
@@ -205,7 +317,7 @@ public class SanitizeText
     private static readonly (ushort Start, ushort End)[] SupportedScriptBlock =
     {
             // Basic Latin (English, Swedish, German, Kurdish Latin)
-            (0x0020, 0x007F), (0x00A0, 0x00FF),
+            (0x0020, 0x007E), (0x00A0, 0x00FF),
             
             // Latin Extended (European languages, Kurdish)
             (0x0100, 0x017F), (0x0180, 0x024F),

@@ -3,51 +3,35 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TextSanitizer.MainPage"
              Title="">
-
-
-    <Grid Padding="5">
-        <VerticalStackLayout >
-
-            <Border Margin="20,10,20,10" 
-                    HeightRequest="100"
-                    MaximumHeightRequest="100">
-                <Editor Placeholder="Enter a text"
-                       
+    <Grid Padding="5" RowSpacing="10" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
+        <Border Grid.Row="0" Margin="20,10,20,10" 
+                HeightRequest="100"
+                MaximumHeightRequest="100">
+            <Editor Placeholder="Enter a text"
                        VerticalTextAlignment="Start"
-                        
                        Text="{Binding Text}"/>
-            </Border>
-
-            <Button Grid.Column="0" Text="Sanitize Text"
-                     Command="{Binding CleanCommand}"
-                     Margin="20,10,20,7"/>
-            <Button Grid.Column="0" Text="Show hidden Text"
-                     Command="{Binding ShowHiddenCommand}"
-                     Margin="20,7,20,7"/>
-
-            <Border Margin="20,30,20,20" 
-                    HeightRequest="250"
-                    MaximumHeightRequest="200">
-                <ScrollView VerticalScrollBarVisibility="Always"
+        </Border>
+        <Button Grid.Row="1" Text="Sanitize Text"
+                Command="{Binding CleanCommand}"
+                Margin="20,10,20,7"/>
+        <Button Grid.Row="2" Text="Show hidden Text"
+                Command="{Binding ShowHiddenCommand}"
+                Margin="20,7,20,7"/>
+        <Border Grid.Row="3" Margin="20" 
+                MinimumHeightRequest="100">
+            <ScrollView VerticalScrollBarVisibility="Always"
                             HorizontalScrollBarVisibility="Always">
-
-                    <Label FormattedText="{Binding OutText}" 
-                           LineBreakMode="WordWrap"
-                           VerticalTextAlignment="Start" />
-                </ScrollView>
-            </Border>
-
-            <Button Text="Copy"
-              Command="{Binding CopyCommand}"
-              Margin="20,10,20,7"/>
-
-            <Button Grid.Column="1" Text="Clear"
-                     Command="{Binding EmptyCommand}"
-                     Margin="20,7,20,7"/>
-
-        </VerticalStackLayout>
-        <Label VerticalOptions="End" Text="{Binding Author}" HorizontalOptions="Center" Margin="0,0,0,10"/>
+                <Label FormattedText="{Binding OutText}" 
+                                   LineBreakMode="WordWrap"
+                                   VerticalTextAlignment="Start" />
+            </ScrollView>
+        </Border>
+        <Button Grid.Row="4" Text="Copy"
+                Command="{Binding CopyCommand}"
+                Margin="20,10,20,7"/>
+        <Button  Grid.Row="5" Text="Clear"
+                 Command="{Binding EmptyCommand}"
+                 Margin="20,7,20,7"/>
+        <Label Grid.Row="6" VerticalOptions="End" Text="{Binding Author}" HorizontalOptions="Center" Margin="0,0,0,10"/>
     </Grid>
-
-
 </ContentPage>
